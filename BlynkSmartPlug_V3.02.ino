@@ -10,7 +10,8 @@
 #include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
 
 
-#define NAMEandVERSION "Blynk-Plug V3.0"
+#define AccessPointName "Blynk-Plug V3.02"
+#define password "mypassword"
 
 
 #define BLYNK_PRINT Serial
@@ -44,7 +45,7 @@ String display_temp;
 String display_humid;
 
 #define DHTPIN 10          // GPIO10 - SD3
-#define mwavepin D0 // microwave presence sensor GPIO16
+//#define mwavepin D0 // microwave presence sensor GPIO16
 #define red   D5 // pin for red LED collour - GPIO14
 #define green D6 // pin for green LED collour - GPIO12
 #define blue  D7 // pin for blue LED collour - GPIO13
@@ -59,15 +60,10 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   Serial.println();
-  display.init();
-  display.clear();
-  display.flipScreenVertically();
-  display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.drawString(64, 0, "*** Config Mode ***");
-  display.display();
   //clean FS, for testing
   //SPIFFS.format();
 
+  //WiFi.mode(WIFI_AP_STA);
   //read configuration from FS json
   Serial.println("mounting FS...");
   display.init();
@@ -75,6 +71,9 @@ void setup() {
   display.flipScreenVertically();
   display.setTextAlignment(TEXT_ALIGN_CENTER);
   display.drawString(64, 0, "*** Config Mode ***");
+  display.drawString(64, 20, "AP IP : 192.168.4.1");
+  display.drawString(64, 30, "SSID: " + String(AccessPointName));
+  display.drawString(64, 40, "AP pw: " + String(password));
   display.display();
   
   if (SPIFFS.begin()) {
@@ -157,14 +156,14 @@ void setup() {
   //if it does not connect it starts an access point with the specified name
   //here  "AutoConnectAP"
   //and goes into a blocking loop awaiting configuration
-  if (!wifiManager.autoConnect("AutoConnectAP", "password")) {
+  if (!wifiManager.autoConnect(AccessPointName, password)) {
     Serial.println("failed to connect and hit timeout");
     display.init();
     display.clear();
     display.flipScreenVertically();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.drawString(64, 0, "***failed to connect ***"); 
-    display.drawString(64, 2, "***and hit timeout ***");
+    display.drawString(64, 10, "***and hit timeout ***");
     display.display();
     delay(3000);
     //reset and try again, or maybe put it to deep sleep
@@ -179,7 +178,7 @@ void setup() {
     display.flipScreenVertically();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.drawString(64, 0, "Connected to Wifi!"); 
-    display.drawString(64, 2, "Saving Config");
+    display.drawString(64, 10, "Saving Config");
     //display.display();
 
   //read updated parameters
@@ -212,7 +211,7 @@ void setup() {
   Serial.println("local ip");
   Serial.println(WiFi.localIP());
 
-  display.drawString(64, 2, "Connecting to Blynk..");
+  display.drawString(64, 10, "Connecting to Blynk..");
   display.display();
   Blynk.config(blynk_token, mqtt_server, atoi(mqtt_port));
   //Blynk.config(blynk_token);
@@ -237,16 +236,15 @@ void setup() {
   // Setup a function to be called every second
   timer.setInterval(5000L, sendTemp);
 //  timer.setInterval(1000L, sendPresence);
-
+  timer.setInterval(60000L, chkWifiSignal);
+  timer.setInterval(30000L, connectionstatus);
   
-  pinMode(mwavepin, INPUT);
-  pinMode(red, OUTPUT);
-  pinMode(green, OUTPUT);
-  pinMode(blue, OUTPUT);
-  pinMode (DHTPIN, INPUT);
+  //pinMode(mwavepin, INPUT);
+  pinMode(red, OUTPUT);    // digital output for the RED colour of a RGB LED strip
+  pinMode(green, OUTPUT); // digital output for the GREEN colour of a RGB LED strip
+  pinMode(blue, OUTPUT);  // digital output for the BLUE colour of a RGB LED strip
+  pinMode (DHTPIN, INPUT); // digital input for the DHT22 sensor
   yield();
-
- 
 }
 
 void loop() {
@@ -265,7 +263,7 @@ void displayData() {
     display.setFont(ArialMT_Plain_10);
 
     if (result == 0){
-      display.drawString(64, 0, "*** Disconected!! ***");   
+      display.drawString(64, 0, "*** Disconnected!! ***");   
       
     }
     else {
@@ -275,16 +273,15 @@ void displayData() {
     display.drawString(66, 13, display_temp + "°C");
     display.drawString(66, 40, display_humid + "%");
     display.display();
-    yield();
+
 }
 
 void sendTemp()
 {
-  yield();
   delay(dht.getMinimumSamplingPeriod());
   h = dht.getHumidity();
   t = dht.getTemperature(); // or dht.readTemperature(true) for Fahrenheit
-  yield();
+
   display_temp = t;
   display_humid = h;
  // Serial.println(display_temp);
@@ -294,16 +291,18 @@ void sendTemp()
   // Please don't send more that 10 values per second.
   Blynk.virtualWrite(V1, h);
   Blynk.virtualWrite(V2, t);
-  delay(100);
   displayData();  
-  yield();
 }
 
-
+void chkWifiSignal()
+{
+  int WifiSignal = WiFi.RSSI() ;
+  int signallStrength = (WifiSignal / 100)* 100;
+  Blynk.virtualWrite(V3, signallStrength);
+}
 
 void connectionstatus()
 {
-
   connection = Blynk.connected();
   if (connection == 0)
   {
@@ -326,8 +325,85 @@ void connectionstatus()
     connectionattempts = 0;
   }
   
-  if (connectionattempts == 5)
-  {
-      ESP.restart();  
+//  if (connectionattempts == 5)
+//  {
+//      ESP.restart();  
+//  }
+
+    if (connectionattempts == 5) {
+      //WiFi.persistent(false);      
+      WiFi.disconnect();          
+      //WiFi.persistent(true);
+      WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
+      WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
+      WiFiManagerParameter custom_blynk_token("blynk", "blynk token", blynk_token, 33);
+    
+      //WiFiManager
+      //Local intialization. Once its business is done, there is no need to keep it around
+      WiFiManager wifiManager;
+      //wifiManager.setBreakAfterConfig(true);
+      //set config save notify callback
+      //wifiManager.setSaveConfigCallback(saveConfigCallback);
+    
+      //set static ip
+      //wifiManager.setSTAStaticIPConfig(IPAddress(10,0,1,99), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
+      
+      //add all your parameters here
+      wifiManager.addParameter(&custom_mqtt_server);
+      wifiManager.addParameter(&custom_mqtt_port);
+      wifiManager.addParameter(&custom_blynk_token);
+      wifiManager.startConfigPortal(AccessPointName, password);
+      delay(3000);
+        //read updated parameters
+  strcpy(mqtt_server, custom_mqtt_server.getValue());
+  strcpy(mqtt_port, custom_mqtt_port.getValue());
+  strcpy(blynk_token, custom_blynk_token.getValue());
+  
+
+
+  //save the custom parameters to FS
+  if (shouldSaveConfig) {
+    Serial.println("saving config");
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    json["mqtt_server"] = mqtt_server;
+    json["mqtt_port"] = mqtt_port;
+    json["blynk_token"] = blynk_token;
+
+    File configFile = SPIFFS.open("/config.json", "w");
+    if (!configFile) {
+      Serial.println("failed to open config file for writing");
+    }
+
+    json.printTo(Serial);
+    json.printTo(configFile);
+    configFile.close();
+    //end save
+  }
+
+      //reset and try again, or maybe put it to deep sleep
+      ESP.reset();  
+      delay(5000);
+
+    //reset settings - for testing
+    //wifiManager.resetSettings();
+
+    //sets timeout until configuration portal gets turned off
+    //useful to make it all retry or go to sleep
+    //in seconds
+    //wifiManager.setTimeout(120);
+
+    //it starts an access point with the specified name
+    //here  "AutoConnectAP"
+    //and goes into a blocking loop awaiting configuration
+
+    //WITHOUT THIS THE AP DOES NOT SEEM TO WORK PROPERLY WITH SDK 1.5 , update to at least 1.5.1
+    //WiFi.mode(WIFI_STA);
+    
+
+    //if you get here you have connected to the WiFi
+    Serial.println("connected...yeey :)");
   }
 }
+
+
