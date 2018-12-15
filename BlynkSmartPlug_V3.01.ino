@@ -33,12 +33,12 @@ void saveConfigCallback () {
 
 // Blynk 
 
-#include "DHTesp.h"
+#include "DHTesp.h"   // https://github.com/beegee-tokyo/DHTesp
 DHTesp dht;
 float t;
 float h;
 
-#include "SSD1306.h" // alias for #include "SSD1306Wire.h"
+#include "SSD1306.h" // alias for #include "SSD1306Wire.h" https://github.com/ThingPulse/esp8266-oled-ssd1306
 SSD1306  display(0x3C, D1, D2); // SDA, SCL , GPIO5 and GPIO4
 String display_temp;
 String display_humid;
